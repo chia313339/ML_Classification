@@ -1,0 +1,63 @@
+
+```{r echo=FALSE, out.width='100%'}
+knitr::include_graphics('./sys/001.jpeg')
+```
+<p align="right"><font size=3% face="Microsoft JhengHei">本版本正在測試階段，如有任何問題請回報</font> </p>
+<p align="right"><font size=3% face="Microsoft JhengHei">資料倉儲科 李嘉桓 #2134</font></p>
+
+***
+
+# 使用說明 
+* 此平台建議有初階R語言能力者使用，初學者建議使用國泰學習網[R與Python教育訓練](https://cathay.elearn.com.tw/dist/index.html#/learning-passport/incomplete-courses/course-info/9608351)完成初階課程。
+* 請將語法複製至本機Rstudio或server版上使用執行(不同環境kernel可能會有所不同)。
+* 若出現紅色指示圖案，為必要執行語法，不用修改直接執行即可。
+```{r echo=FALSE, out.width='2%'}
+knitr::include_graphics('./sys/image2.jpeg')
+```
+* 若出現綠色指示圖案，為必要執行語法，須根據需求修改部分內容執行。
+```{r echo=FALSE, out.width='2%'}
+knitr::include_graphics('./sys/image1.jpeg')
+```
+* 若跳出缺少套件的訊息，請自行安裝相關套件。
+* 建議將文件建立在R根目錄下。
+* 以下以Kaggle中[Default of Credit Card Clients Dataset](https://www.kaggle.com/uciml/default-of-credit-card-clients-dataset/home)資料作為範例。
+
+***
+
+# 環境設定
+
+* 清理工作環境，避免環境存留資訊佔用記憶體空間。
+* 設定確認環境路徑。
+
+```{r echo=FALSE, out.width='8%'}
+knitr::include_graphics('./sys/red.jpeg')
+```
+
+```{r}
+rm(list = ls())
+path = getwd()
+# path = '/Users/R' # 自定義路徑
+gc()
+```
+
+
+# 資料處理
+
+* **TrainDataFile**為訓練資料檔名，**TestDataFile**為測試資料檔名，建議使用csv檔放置環境路徑。
+* **TargetColumn**為應變數Y的欄位名稱。
+* **DropColumns**為要刪除的欄位名稱，可能是ID、保單號碼、電話等個資或無意義欄位。
+* **OutputAnswer**為要產出結果的檔名。
+
+
+```{r echo=FALSE, out.width='8%'}
+knitr::include_graphics('./sys/green.jpeg')
+```
+
+```{r}
+TrainDataFile = 'train.csv'
+TestDataFile  = 'test.csv'
+TargetColumn  = 'default.payment.next.month'
+DropColumns   = c('ID') #c('ID','POLICY_NO','APPLY_NO','EMAIL','PHONE')
+OutputAnswer  = 'outputdata'
+```
+
