@@ -1,4 +1,4 @@
-
+<font face="Microsoft JhengHei">
 ```{r echo=FALSE, out.width='100%'}
 knitr::include_graphics('./sys/001.jpeg')
 ```
@@ -7,47 +7,58 @@ knitr::include_graphics('./sys/001.jpeg')
 
 ***
 
-# 使用說明 
+# **使用說明** 
 * 此平台建議有初階R語言能力者使用，初學者建議使用國泰學習網[R與Python教育訓練](https://cathay.elearn.com.tw/dist/index.html#/learning-passport/incomplete-courses/course-info/9608351)完成初階課程。
-* 請將語法複製至本機Rstudio或server版上使用執行(不同環境kernel可能會有所不同)。
+* 請將語法複製至本機Rstudio或server版上使用執行(不同環境kernel可能會有所不同)，將要執行的程式碼選取，按鍵盤Ctrl+Enter執行語法。
 * 若出現紅色指示圖案，為必要執行語法，不用修改直接執行即可。
 ```{r echo=FALSE, out.width='2%'}
 knitr::include_graphics('./sys/image2.jpeg')
 ```
-* 若出現綠色指示圖案，為必要執行語法，須根據需求修改部分內容執行。
+* 若出現綠色指示圖案，為必要執行語法，但須根據需求修改部分內容執行。
 ```{r echo=FALSE, out.width='2%'}
 knitr::include_graphics('./sys/image1.jpeg')
 ```
 * 若跳出缺少套件的訊息，請自行安裝相關套件。
-* 建議將文件建立在R根目錄下。
+* 建議將文件建立在R根目錄下開一個新資料夾當工作環境。
 * 以下以Kaggle中[Default of Credit Card Clients Dataset](https://www.kaggle.com/uciml/default-of-credit-card-clients-dataset/home)資料作為範例。
 
 ***
 
-# 環境設定
+# **環境設定**
 
 * 清理工作環境，避免環境存留資訊佔用記憶體空間。
-* 設定確認環境路徑。
+* 載入所需package套件，若無則自動安裝。
+* 設定工作路徑，沒特別設定則以當前環境當作，也可以在Rstudio右下方的Files頁自行設定路徑。
+
+```{r echo=FALSE, out.width='50%'}
+knitr::include_graphics('./sys/rstudio.png')
+```
 
 ```{r echo=FALSE, out.width='8%'}
 knitr::include_graphics('./sys/red.jpeg')
 ```
 
-```{r}
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
 rm(list = ls())
+
+if (!require("ggplot2")) install.packages("ggplot2")
+library('ggplot2')
+
+set.seed(100)
 path = getwd()
-# path = '/Users/R' # 自定義路徑
+# path = '~/ML' # 自定義路徑
 gc()
 ```
 
 
-# 資料處理
+# **資料處理**
+## 檔名設定
 
 * **TrainDataFile**為訓練資料檔名，**TestDataFile**為測試資料檔名，建議使用csv檔放置環境路徑。
+* **KeyColumn**為資料識別欄位名稱，通常為key且不會重複的值，如ID、保單號碼。
 * **TargetColumn**為應變數Y的欄位名稱。
-* **DropColumns**為要刪除的欄位名稱，可能是ID、保單號碼、電話等個資或無意義欄位。
 * **OutputAnswer**為要產出結果的檔名。
-
+* **MissingTypes**為讀取空字串先用NA表示。
 
 ```{r echo=FALSE, out.width='8%'}
 knitr::include_graphics('./sys/green.jpeg')
@@ -56,8 +67,240 @@ knitr::include_graphics('./sys/green.jpeg')
 ```{r}
 TrainDataFile = 'train.csv'
 TestDataFile  = 'test.csv'
+KeyColumn  = 'ID'
 TargetColumn  = 'default.payment.next.month'
-DropColumns   = c('ID') #c('ID','POLICY_NO','APPLY_NO','EMAIL','PHONE')
 OutputAnswer  = 'outputdata'
+MissingTypes = c("", "NA") 
 ```
 
+## 資料讀取
+
+* 資料編碼預測為UTF-8，如有亂碼或讀取異常請自行轉碼或找資服求助。
+* 訓練資料及測試資料的欄位數要一樣，且欄位內格式相同，測試資料可以缺少應變數Y欄位。
+* 模型應變數Y值欄位可以在最前面或最後面，不影響運算。
+* 資料前處理可以先使用SAS-EG進行探勘。
+
+```{r echo=FALSE, out.width='8%'}
+knitr::include_graphics('./sys/red.jpeg')
+```
+
+```{r paged.print=TRUE}
+TrainData = read.csv(paste0(path,'/',TrainDataFile), header = T, sep=",", na.strings = MissingTypes)
+TestData = read.csv(paste0(path,'/',TestDataFile), header = T, sep=",", na.strings = MissingTypes)
+```
+
+* 如要觀察資料樣貌及型態，可執行下面語法。
+
+```{r echo=TRUE, results='hide'}
+str(TrainData)
+str(TestData)
+head(TrainData,5)
+head(TestData,5)
+summary(TrainData)
+summary(TestData)
+```
+
+## 型態轉換
+
+* R的特徵型態分為數值(numeric)、整數(integer)、類別(factor)、日期(Date)、文字(character)。
+* 數值與整數差異在特徵因子是否有小數點，如理賠次數為整數、身高體重為數值。
+* 類別為性別、職業、學歷等離散型變數。
+* 日期欄位建議轉為結構化的年月日連續型變數，如年齡、距離最後一次投保時間，**分析上會移除日期欄位變數**。
+* 文字欄位通常為無分析意義的資訊，如ID、保單號碼、電話，**分析上會移除文字欄位變數**。
+
+<font color=CRIMSON> **請補上要進行變數轉換的欄位，若無填寫則根據系統預設進行處理，可以先使用str(TrainData)看目前預設的欄位型態。**</font> 
+
+```{r echo=FALSE, out.width='8%'}
+knitr::include_graphics('./sys/green.jpeg')
+```
+
+```{r}
+numeric_col = c('') # names(TrainData[12:23])
+integer_col = c('')
+factor_col = c('SEX','EDUCATION','MARRIAGE','PAY_0','PAY_2','PAY_3','PAY_4','PAY_5','PAY_6','default.payment.next.month')
+Date_col = c('')
+character_col = c('ID') # c('ID','POLICY_NO','APPLY_NO','EMAIL','PHONE')
+```
+
+* 進行型態轉換。
+
+```{r echo=FALSE, out.width='8%'}
+knitr::include_graphics('./sys/red.jpeg')
+```
+
+```{r}
+typechange = function(dataset,KeyColumn,numeric_col,integer_col,factor_col,Date_col,character_col){
+  dataset = as.data.frame(dataset)
+  if(sum(numeric_col!="")>0) dataset[numeric_col] = lapply(dataset[numeric_col], as.numeric) 
+  if(sum(integer_col!="")>0) dataset[integer_col] = lapply(dataset[integer_col], as.integer) 
+  if(sum(factor_col!="")>0) dataset[factor_col] = lapply(dataset[factor_col], as.factor) 
+  Unikey = dataset[[KeyColumn]]
+  dataset = dataset[,-which(colnames(dataset) %in% c(Date_col,character_col))]
+  dataset = as.data.frame(cbind(Unikey,dataset))
+  return(dataset)
+}
+
+TrainData = typechange(TrainData,KeyColumn,numeric_col,integer_col,factor_col,Date_col,character_col)
+TestData = typechange(TestData,KeyColumn,numeric_col,integer_col,factor_col,Date_col,character_col)
+```
+
+* 確認訓練資料型態。
+
+```{r}
+str(TrainData[,-1])
+```
+
+## 移除異常欄位
+
+* 找出應變數為空或為缺失的資料，跑出來結果應該為沒資料，若有請重新確認訓練資料應變數。
+
+```{r echo=FALSE, out.width='8%'}
+knitr::include_graphics('./sys/red.jpeg')
+```
+
+```{r}
+Y_ind = TrainData[[TargetColumn]] == '' | is.na(TrainData[[TargetColumn]])
+print(paste("應變數異常筆數為",sum(Y_ind)))
+TrainData[Y_ind,'Unikey'] # 顯示有異常的資料key
+```
+
+* 移除都是同一值及全為空的欄位。
+
+```{r echo=FALSE, out.width='8%'}
+knitr::include_graphics('./sys/red.jpeg')
+```
+
+```{r}
+clearNA = function(dataset){
+  dataset = as.data.frame(dataset)
+  ind_col = apply(dataset, 2,function(x) all(is.na(x)|x==''))
+  if(sum(ind_col)>0) dataset = dataset[,-which(ind_col)] 
+  return(dataset)
+}
+
+TrainData = clearNA(TrainData)
+```
+
+## 填補缺失值
+
+* 以下使用訓練資料進行補值示範。
+* 若測試資料也需要補值，請將補值語法的TrainData改為TestData。
+
+<font color=CRIMSON> 
+**補缺時值方法很多種，以下為選用模式，請根據需求進行缺失補值處理。**
+</font> 
+
+```{r echo=FALSE, out.width='8%'}
+knitr::include_graphics('./sys/red.jpeg')
+```
+
+```{r}
+apply(TrainData[,-1], 2,function(x) sum(is.na(x))) # 列出欄位有缺失值的數量
+```
+
+#### 1. 移除有遺漏值的資料
+
+* 只要一筆資料中有缺失值，則移除整筆資料。
+* 此方法可能造成資訊損失。
+
+```{r echo=TRUE, results='hide',eval=FALSE}
+TrainData = TrainData[complete.cases(TrainData), ]
+```
+
+#### 2. 用「平均數」或「中位數」補值
+
+* 將連續行欄位，用平均或眾數補值。
+* 此方法可以讓變數平均與原始資料不變。
+
+```{r echo=TRUE, results='hide',eval=FALSE}
+# 以LIMIT_BAL為例
+TrainData$LIMIT_BAL[is.na(TrainData$LIMIT_BAL)] = mean(TrainData$LIMIT_BAL,na.rm = T) #用平均補值
+TrainData$LIMIT_BAL[is.na(TrainData$LIMIT_BAL)] = median(TrainData$LIMIT_BAL,na.rm = T) #用中位數補值
+```
+
+#### 3. 用特定值補值
+
+* 將有缺失的資料用固定的特定值補值。
+* 適用已知缺失原因的資料，如抽菸與否，缺失為沒抽菸。
+
+```{r echo=TRUE, results='hide',eval=FALSE}
+# 以EDUCATION為例，缺失值補為6未知（1 =研究生院，2 =大學，3 =高中，4 =其他，5 =未知，6 =未知）
+TrainData$EDUCATION[is.na(TrainData$EDUCATION)] = '6' 
+```
+
+* 如果類別變數factor要增加原本沒有的類別，需要先新增類別項目，再進行補值。
+
+```{r echo=TRUE, results='hide',eval=FALSE}
+# 以MARRIAGE新增 "4未知" 為例（1 =已婚，2 =單身，3 =其他）
+levels(TrainData$MARRIAGE) = c(levels(TrainData$MARRIAGE), 4)
+TrainData$MARRIAGE[is.na(TrainData$MARRIAGE)] = '4' 
+```
+
+#### 4. K-Nearest Neighbours補值法
+
+* 又稱KNN補值法，原理為找個跟自己最像的資料，複製缺少資料補值。
+* 可以一次對所有欄位補值。
+* 詳細說明可以參考[knnImputation](https://www.rdocumentation.org/packages/DMwR/versions/0.4.1/topics/knnImputation)。
+
+```{r echo=TRUE, results='hide',eval=FALSE}
+library('DMwR')
+TrainData = knnImputation(TrainData, k = 10)
+```
+
+#### 5. MICE補值法
+
+* MICE法是將每個有遺漏的值當模型Y，其他值當模型X進行預測。
+* MICE法可以支援多種模型算法，包含linear regression, logistic regression, cart, random forest...等。
+* 詳細說明可以參考[mice](https://www.rdocumentation.org/packages/mice/versions/3.3.0/topics/mice)。
+
+```{r echo=TRUE, results='hide',eval=FALSE}
+library('mice')
+mice.data = mice(TrainData,
+                  m = 1,           # 產生m個被填補好的資料表
+                  maxit = 5,       # max iteration
+                  method = "cart", # 使用CART決策樹，進行遺漏值預測
+                  seed = 100)      # set.seed()，令抽樣每次都一樣
+
+TrainData = complete(mice.data,1) # 如果m有個就有m個資料集 complete(mice.data,m)
+```
+
+#### 6. 其他補值法
+* 資料補植需根據需求調整，部分機器學習演算法已支援缺失值訓練，不補值也是一種方法。
+* 若上述補值方式不滿意，可以參考Amelia、missForest、Hmisc、mi等，請自行研究。
+
+## 特徵轉換
+
+* 特徵轉換的功用是增加資料使用價值，此步驟非必要。
+* 如偏斜的資料經過log轉置，可以讓分布更加均勻。過度離散的資料，可以用正規化scale讓資料收斂。
+* 如果對特徵工程有研究，自行對資料加工處理。
+
+```{r echo=TRUE, results='hide',eval=FALSE}
+# 以LIMIT_BAL取log為例
+TrainData$LIMIT_BAL = log(TrainData$LIMIT_BAL+1)
+# 以LIMIT_BAL取scale為例
+TrainData$LIMIT_BAL = scale(TrainData$LIMIT_BAL)
+```
+
+## 特徵工程
+
+* 特徵工程的方法有很多，以下用最常見的主成分分析PCA做示範。
+* PCA主要功用在減少變數數量，在傳統建模占很重要的步驟，但現行機器學習演算法可以解決大量變數問題，因此為非必要步驟。
+
+```{r echo=TRUE, results='hide',eval=FALSE}
+formula = paste()
+
+```
+
+
+
+## 填補缺失值
+
+TrainData$MARRIAGE
+train$MARRIAGE
+dataset$MARRIAGE
+
+ paste("[字串1]", "[字串2]", "[字串3]", sep = "[字串間的分隔符號]")
+
+
+
+</font>
