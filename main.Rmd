@@ -43,6 +43,12 @@ rm(list = ls())
 
 if (!require("ggplot2")) install.packages("ggplot2")
 library('ggplot2')
+if (!require("caret")) install.packages("caret")
+library('caret')
+if (!require("doParallel")) install.packages("doParallel")
+library('doParallel')
+if (!require("MLmetrics")) install.packages("MLmetrics")
+library('MLmetrics')
 
 set.seed(100)
 path = getwd()
@@ -286,20 +292,189 @@ TrainData$LIMIT_BAL = scale(TrainData$LIMIT_BAL)
 * 特徵工程的方法有很多，以下用最常見的主成分分析PCA做示範。
 * PCA主要功用在減少變數數量，在傳統建模占很重要的步驟，但現行機器學習演算法可以解決大量變數問題，因此為非必要步驟。
 
-```{r echo=TRUE, results='hide',eval=FALSE}
-formula = paste()
+```{r}
+formula = ~ LIMIT_BAL + AGE + BILL_AMT1 + BILL_AMT2 + BILL_AMT3 + BILL_AMT4 + BILL_AMT5 + BILL_AMT6 + PAY_AMT1 + PAY_AMT2 + PAY_AMT3 + PAY_AMT4 + PAY_AMT5 + PAY_AMT6
+pca = prcomp(formula ,           # 選擇變數，原則上為連續變數
+              data = TrainData,   # 資料
+              scale = TRUE)       # 正規化資料
 
+pca$rotation
+```
+
+* 檢視PCA結果，Standard deviations為特徵值開根號，Rotation為特徵向量，即各個主成份所對應的線性組合(linear combination)係數。
+* 要選擇幾個主成分，可以使用Scree plot及Pareto plot輔助。
+* 相關名詞解釋可以參考[Factor analysis](https://en.wikipedia.org/wiki/Factor_analysis)。
+```{r}
+# 陡坡圖(Scree plot)
+plot(pca,         # 放pca
+     type="line") # 用直線連結每個點
+
+# 根據Kaiser criterion，標示出特徵值=1的地方
+abline(h=1, col="blue") 
+```
+
+* 將每個主成分的特徵值進行解釋運算，並累加每個主成分的解釋比例。
+* 模型可以使用PCA結果進行建模，或加入原有變數建模，請使用者根據需求使用。
+
+```{r}
+var = (pca$sdev)^2 # 平方計算variance
+prob = var/sum(var) # 計算解釋比例
+cumulative_prob = cumsum(prob) # 累加前n個元素的值
+plot(cumulative_prob)
+```
+
+
+# **模型訓練**
+## 模型訓練預處理
+
+* 資料預處理可以提高模型訓練的準確率，非必要執行，但**強烈建議使用**。
+* 預處理會根據不同演算法有所不同(如線性回歸要排除共線性欄位、訓練資料轉為虛擬變量dummy variables)，請自由搭配使用。
+
+#### 1. 近0變量 Zero and Near Zero-Variance 處理
+
+* 把自變數X中，分佈差異極大的欄位排除，可以解決模型部穩定的問題(tree-based models除外)。
+* 例如"是否曾經服刑"，N跟Y的資料比例為99:1，那就會排除掉該欄位。
+
+```{r message=FALSE, warning=FALSE}
+nzv = nearZeroVar(TrainData) # nzv為分佈差異大的欄位
+if(length(nzv)>0) TrainData = TrainData[, -nzv] # 若沒有則不處理
+```
+
+#### 2. 轉為虛擬變量 dummy variables
+
+* 虛擬變量會將多個因子轉為變量集，提供運算速度及準確度。
+* 相關詳細說明可以參考[Dummy variable](https://en.wikipedia.org/wiki/Dummy_variable_(statistics))。
+
+```{r echo=FALSE, out.width='8%'}
+knitr::include_graphics('./sys/red.jpeg')
+```
+
+```{r message=FALSE, warning=FALSE}
+formula = paste(get('TargetColumn')," ~ .")
+dummies = dummyVars(formula, data = TrainData[-1]) # 轉dummy函數
+TrainData_dmy = predict(dummies, TrainData) # 建立訓練資料的虛擬變量
+TestData_dmy = predict(dummies, TestData) # 建立訓練資料的虛擬變量
+# dim(TrainData_dmy)
+# dim(TestData_dmy)
+head(TrainData_dmy[,1:5])
+```
+
+#### 3. 共線性相關 Linear Dependencies
+
+* 此方法解析自變數X是否有共線性問題，將之找出並刪除，這樣可以提高模型的穩定度(tree-based models除外)。
+* 例如"BMI"及"身高&體重"就有高度線性關係，排除可以避免特徵過度解釋。
+
+```{r message=FALSE, warning=FALSE,eval=FALSE}
+comboInfo = findLinearCombos(TrainData) # 找出線性相關欄位
+if(length(comboInfo$remove)>0) TrainData = TrainData[, -comboInfo$remove] # 排除相關性欄位
+```
+
+#### 4. preProcess 函數
+
+* 此函數可以進行 Centering 或 Scaling功能，也是提高模型穩定度的前處理方法。
+* 函數功能過多可以參考[preProcess](https://www.rdocumentation.org/packages/caret/versions/6.0-80/topics/preProcess)。
+
+```{r message=FALSE, warning=FALSE,eval=FALSE}
+# 以center跟scale進行示範
+preProcValues = preProcess(TrainData, method = c("center", "scale")) 
+trainTransformed = predict(preProcValues, TrainData) # 訓練資料轉換
+testTransformed = predict(preProcValues, TestData) # 測試資料轉換
+# 將識別欄位組回來
+TrainData = data.frame(TrainData$Unikey,trainTransformed[-1])
+TestData = data.frame(TestData$Unikey,testTransformed[-1])
+```
+
+## 相關參數設定
+
+* R一般為單核運算，為了提高運算效率，設定多核運行環境。
+* 建立Control函數來控制模型訓練的方法，包含n_fold及參數的效調。
+* 一開始建立模型建議先以下面default的函數進行訓練，找出最適合的演算法再進行參數調整。
+* Control函數的內容請參考[trainControl](https://www.rdocumentation.org/packages/caret/versions/6.0-80/topics/trainControl)。
+
+```{r echo=FALSE, out.width='8%'}
+knitr::include_graphics('./sys/red.jpeg')
+```
+
+```{r}
+# 建立多核運算環境
+cl<-makeCluster(3) #建議不要超過4，自行根據硬體設備設定
+registerDoParallel(cl)
+#stopCluster(cl) #不使用時可以用此語法關閉多核運行
+
+# 建立n個fold進行cross validation 以及模型的Control設定
+# 如果針對演算法要詳細設定，可以各別建立Control函數
+fitControl <- trainControl(## 3-fold CV
+                           method = "cv",
+                           number = 3 ) 
+
+# 訓練資料及測試資料去除識別欄位訓練(備份用意)
+training = TrainData[-1]
+testing = TestData[-1]
+
+# 模型表現函數
+report_metrics = function(method,y_ture,y_pred,y_score){
+  ans = data.frame(Algorithm = method,
+                   ROC_AUC = AUC(y_pred, y_ture),
+                   Accuracy = Accuracy(y_pred, y_ture),
+                   Precision = Precision(y_ture, y_pred, positive = '1'),
+                   Recall = Recall(y_ture, y_pred, positive = '1'),
+                   F1_Score = F1_Score(y_ture, y_pred, positive  = '1')
+  )
+ return(ans)
+}
+```
+
+## Generalized linear model
+
+* 羅吉斯回歸模型，詳細可以參考[GLM](https://www.rdocumentation.org/packages/rms/versions/5.1-2/topics/Glm)。
+
+```{r message=FALSE, warning=FALSE}
+# GLM模型訓練
+set.seed(200)
+formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula=as.formula(formula)
+glmFit <- train(formula, data = training, 
+                 method = "glm", 
+                 trControl = fitControl)
+glmFit
+```
+
+```{r message=FALSE, warning=FALSE}
+# 訓練資料模型表現
+glm_train_pred = predict(glmFit, training)
+glm_train_prob = predict(glmFit, training, type = "prob")
+glm_train_report = report_metrics(glmFit$method,training$default.payment.next.month,glm_train_pred,glm_train_prob)
+glm_train_report
+```
+
+```{r message=FALSE, warning=FALSE}
+# 模型重要變數
+imp = varImp(glmFit, scale = TRUE)
+plot(imp)
+```
+
+```{r message=FALSE, warning=FALSE}
+# 訓練資料模型表現
+glm_test_pred = predict(glmFit, testing)
+glm_test_prob = predict(glmFit, testing, type = "prob")
+glm_test_report = report_metrics(glmFit$method,testing$default.payment.next.month,glm_test_pred,glm_test_prob)
+glm_test_report
 ```
 
 
 
-## 填補缺失值
 
-TrainData$MARRIAGE
-train$MARRIAGE
-dataset$MARRIAGE
 
- paste("[字串1]", "[字串2]", "[字串3]", sep = "[字串間的分隔符號]")
+
+
+
+
+
+
+
+
+
+
 
 
 
