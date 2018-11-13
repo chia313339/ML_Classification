@@ -53,6 +53,7 @@ library('MLmetrics')
 set.seed(100)
 path = getwd()
 # path = '~/ML' # 自定義路徑
+dir.create(file.path(path, "model"), showWarnings = FALSE) # model儲存位置
 gc()
 ```
 
@@ -424,9 +425,9 @@ report_metrics = function(method,y_ture,y_pred,y_score){
 }
 ```
 
-## Generalized linear model
+## 1. Generalized linear model
 
-* 羅吉斯回歸模型，詳細可以參考[GLM](https://www.rdocumentation.org/packages/rms/versions/5.1-2/topics/Glm)。
+* 羅吉斯回歸模型，詳細請參考[GLM](https://www.rdocumentation.org/packages/rms/versions/5.1-2/topics/Glm)。
 
 ```{r message=FALSE, warning=FALSE}
 # GLM模型訓練
@@ -436,6 +437,7 @@ formula=as.formula(formula)
 glmFit <- train(formula, data = training, 
                  method = "glm", 
                  trControl = fitControl)
+save(glmFit, file = "./model/glmFit.rda") # 儲存模型檔
 glmFit
 ```
 
@@ -443,23 +445,154 @@ glmFit
 # 訓練資料模型表現
 glm_train_pred = predict(glmFit, training)
 glm_train_prob = predict(glmFit, training, type = "prob")
-glm_train_report = report_metrics(glmFit$method,training$default.payment.next.month,glm_train_pred,glm_train_prob)
+glm_train_report = report_metrics(glmFit$method,training[[TargetColumn]],glm_train_pred,glm_train_prob)
 glm_train_report
 ```
 
 ```{r message=FALSE, warning=FALSE}
 # 模型重要變數
-imp = varImp(glmFit, scale = TRUE)
-plot(imp)
+glm_imp = varImp(glmFit, scale = TRUE)
+plot(glm_imp)
 ```
 
 ```{r message=FALSE, warning=FALSE}
 # 訓練資料模型表現
 glm_test_pred = predict(glmFit, testing)
 glm_test_prob = predict(glmFit, testing, type = "prob")
-glm_test_report = report_metrics(glmFit$method,testing$default.payment.next.month,glm_test_pred,glm_test_prob)
+glm_test_report = report_metrics(glmFit$method,testing[[TargetColumn]],glm_test_pred,glm_test_prob)
 glm_test_report
 ```
+
+
+## 2. Decision Tree 
+
+* 決策樹模型，詳細請參考[rpart](https://www.rdocumentation.org/packages/rpart/versions/4.1-13/topics/rpart)。
+
+```{r message=FALSE, warning=FALSE}
+library('rpart')
+# CART模型訓練
+set.seed(200)
+formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula=as.formula(formula)
+cartFit <- train(formula, data = training, 
+                 method = "rpart", 
+                 trControl = fitControl)
+save(cartFit, file = "./model/cartFit.rda") # 儲存模型檔
+cartFit
+```
+
+```{r message=FALSE, warning=FALSE}
+# 訓練資料模型表現
+cart_train_pred = predict(cartFit, training)
+cart_train_prob = predict(cartFit, training, type = "prob")
+cart_train_report = report_metrics(cartFit$method,training[[TargetColumn]],cart_train_pred,cart_train_prob)
+cart_train_report
+```
+
+```{r message=FALSE, warning=FALSE}
+# 模型重要變數
+cart_imp = varImp(cartFit, scale = TRUE)
+plot(cart_imp)
+```
+
+```{r message=FALSE, warning=FALSE}
+# 訓練資料模型表現
+cart_test_pred = predict(cartFit, testing)
+cart_test_prob = predict(cartFit, testing, type = "prob")
+cart_test_report = report_metrics(cartFit$method,testing[[TargetColumn]],cart_test_pred,cart_test_prob)
+cart_test_report
+```
+
+
+## 3. Random Forest
+
+* 隨機森林模型，詳細請參考[Random Forest](https://www.rdocumentation.org/packages/randomForest/versions/4.6-14/topics/randomForest)。
+
+```{r message=FALSE, warning=FALSE}
+# RF模型訓練
+set.seed(200)
+library('randomForest')
+formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula=as.formula(formula)
+rfFit <- train(formula, data = training, 
+                 method = "rf", 
+                 trControl = fitControl)
+save(rfFit, file = "./model/rfFit.rda") # 儲存模型檔
+rfFit
+```
+
+```{r message=FALSE, warning=FALSE}
+# 訓練資料模型表現
+rf_train_pred = predict(rfFit, training)
+rf_train_prob = predict(rfFit, training, type = "prob")
+rf_train_report = report_metrics(rfFit$method,training[[TargetColumn]],rf_train_pred,rf_train_prob)
+rf_train_report
+```
+
+```{r message=FALSE, warning=FALSE}
+# 模型重要變數
+rf_imp = varImp(rfFit, scale = TRUE)
+plot(rf_imp)
+```
+
+```{r message=FALSE, warning=FALSE}
+# 訓練資料模型表現
+rf_test_pred = predict(rfFit, testing)
+rf_test_prob = predict(rfFit, testing, type = "prob")
+rf_test_report = report_metrics(rfFit$method,testing[[TargetColumn]],rf_test_pred,rf_test_prob)
+rf_test_report
+```
+
+
+## 4. Stochastic Gradient Boosting
+
+* GBM模型，詳細請參考[gbm](https://www.rdocumentation.org/packages/gbm/versions/2.1.4/topics/gbm)。
+
+```{r message=FALSE, warning=FALSE}
+# gbm模型訓練
+set.seed(200)
+library('gbm')
+formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula=as.formula(formula)
+gbmFit <- train(formula, data = training, 
+                 method = "gbm", 
+                 trControl = fitControl)
+save(gbmFit, file = "./model/gbmFit.rda") # 儲存模型檔
+gbmFit
+```
+
+```{r message=FALSE, warning=FALSE}
+# 訓練資料模型表現
+gbm_train_pred = predict(gbmFit, training)
+gbm_train_prob = predict(gbmFit, training, type = "prob")
+gbm_train_report = report_metrics(gbmFit$method,training$default.payment.next.month,gbm_train_pred,gbm_train_prob)
+gbm_train_report
+```
+
+```{r message=FALSE, warning=FALSE}
+# 模型重要變數
+gbm_imp = varImp(gbmFit, scale = TRUE)
+plot(gbm_imp)
+```
+
+```{r message=FALSE, warning=FALSE}
+# 訓練資料模型表現
+gbm_test_pred = predict(gbmFit, testing)
+gbm_test_prob = predict(gbmFit, testing, type = "prob")
+gbm_test_report = report_metrics(gbmFit$method,testing$default.payment.next.month,gbm_test_pred,gbm_test_prob)
+gbm_test_report
+```
+
+
+
+
+
+
+
+
+
+
+
 
 
 

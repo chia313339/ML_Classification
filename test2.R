@@ -1,7 +1,18 @@
-# .rs.restartR()
 rm(list = ls())
+
+if (!require("ggplot2")) install.packages("ggplot2")
+library('ggplot2')
+if (!require("caret")) install.packages("caret")
+library('caret')
+if (!require("doParallel")) install.packages("doParallel")
+library('doParallel')
+if (!require("MLmetrics")) install.packages("MLmetrics")
+library('MLmetrics')
+
+set.seed(100)
 path = getwd()
-# path = '~/ML/ML_Classification' # 自定義路徑
+# path = '~/ML' # 自定義路徑
+dir.create(file.path(path, "model"), showWarnings = FALSE) # model儲存位置
 gc()
 
 #####################################################################
@@ -26,7 +37,7 @@ TestDataFile  = 'test.csv'
 KeyColumn  = 'ID'
 TargetColumn  = 'default.payment.next.month'
 OutputAnswer  = 'outputdata'
-MissingTypes = c("", "NA") 
+MissingTypes = c("", "NA")
 
 TrainData = read.csv(paste0(path,'/',TrainDataFile), header = T, sep=",", na.strings = MissingTypes)
 TestData = read.csv(paste0(path,'/',TestDataFile), header = T, sep=",", na.strings = MissingTypes)
@@ -39,9 +50,9 @@ character_col = c('ID') #c('ID','POLICY_NO','APPLY_NO','EMAIL','PHONE')
 
 typechange = function(dataset,KeyColumn,numeric_col,integer_col,factor_col,Date_col,character_col){
   dataset = as.data.frame(dataset)
-  if(sum(numeric_col!="")>0) dataset[numeric_col] <- lapply(dataset[numeric_col], as.numeric) 
-  if(sum(integer_col!="")>0) dataset[integer_col] <- lapply(dataset[integer_col], as.integer) 
-  if(sum(factor_col!="")>0) dataset[factor_col] <- lapply(dataset[factor_col], as.factor) 
+  if(sum(numeric_col!="")>0) dataset[numeric_col] <- lapply(dataset[numeric_col], as.numeric)
+  if(sum(integer_col!="")>0) dataset[integer_col] <- lapply(dataset[integer_col], as.integer)
+  if(sum(factor_col!="")>0) dataset[factor_col] <- lapply(dataset[factor_col], as.factor)
   Unikey = dataset[[KeyColumn]]
   dataset = dataset[,-which(colnames(dataset) %in% c(Date_col,character_col))]
   dataset = as.data.frame(cbind(Unikey,dataset))
@@ -60,7 +71,7 @@ TrainData[Y_ind,'Unikey'] #顯示有異常的資料key
 clearNA = function(dataset){
   dataset = as.data.frame(dataset)
   ind_col = apply(dataset, 2,function(x) all(is.na(x)|x==''))
-  if(sum(ind_col)>0) dataset = dataset[,-which(ind_col)] 
+  if(sum(ind_col)>0) dataset = dataset[,-which(ind_col)]
   return(dataset)
 }
 
@@ -76,10 +87,80 @@ TestData_dmy = predict(dummies, TestData) # 建立訓練資料的虛擬變量
 # dim(TrainData_dmy)
 # dim(TestData_dmy)
 head(TrainData_dmy[,1:5])
+################################################################
+
+# 建立多核運算環境
+cl<-makeCluster(3) #建議不要超過4，自行根據硬體設備設定
+registerDoParallel(cl)
+#stopCluster(cl) #不使用時可以用此語法關閉多核運行
+
+# 建立n個fold進行cross validation 以及模型的Control設定
+# 如果針對演算法要詳細設定，可以各別建立Control函數
+fitControl <- trainControl(## 3-fold CV
+  method = "cv",
+  number = 3 )
+
+# 訓練資料及測試資料去除識別欄位訓練(備份用意)
+training = TrainData[-1]
+testing = TestData[-1]
+
+# 模型表現函數
+report_metrics = function(method,y_ture,y_pred,y_score){
+  ans = data.frame(Algorithm = method,
+                   ROC_AUC = AUC(y_pred, y_ture),
+                   Accuracy = Accuracy(y_pred, y_ture),
+                   Precision = Precision(y_ture, y_pred, positive = '1'),
+                   Recall = Recall(y_ture, y_pred, positive = '1'),
+                   F1_Score = F1_Score(y_ture, y_pred, positive  = '1')
+  )
+  return(ans)
+}
+
+# GLM模型訓練
+set.seed(200)
+formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula=as.formula(formula)
+glmFit <- train(formula, data = training,
+                method = "glm",
+                trControl = fitControl)
+glmFit
+
+# 訓練資料模型表現
+glm_train_pred = predict(glmFit, training)
+glm_train_prob = predict(glmFit, training, type = "prob")
+glm_train_report = report_metrics(glmFit$method,training$default.payment.next.month,glm_train_pred,glm_train_prob)
+glm_train_report
+
+# 模型重要變數
+glm_imp = varImp(glmFit, scale = TRUE)
+plot(glm_imp)
+
+# 訓練資料模型表現
+glm_test_pred = predict(glmFit, testing)
+glm_test_prob = predict(glmFit, testing, type = "prob")
+glm_test_report = report_metrics(glmFit$method,testing$default.payment.next.month,glm_test_pred,glm_test_prob)
+glm_test_report
+
+
+
+
 
 
 
 ################################################################
+
+dir.create(file.path(path, "model"), showWarnings = FALSE)
+
+
+
+
+
+
+
+
+
+
+
 library('caret')
 library('gbm')
 library(doParallel)
@@ -100,8 +181,8 @@ fitControl <- trainControl(## 10-fold CV
 train_tmp = TrainData[-1]
 
 set.seed(100)
-gbmFit1 <- train(default.payment.next.month ~ ., data = train_tmp, 
-                 method = "gbm", 
+gbmFit1 <- train(default.payment.next.month ~ ., data = train_tmp,
+                 method = "gbm",
                  trControl = fitControl,
                  ## This last option is actually one
                  ## for gbm() that passes through
@@ -109,15 +190,15 @@ gbmFit1 <- train(default.payment.next.month ~ ., data = train_tmp,
 gbmFit1
 
 # grid
-gbmGrid <-  expand.grid(interaction.depth = c(1, 5, 9), 
-                        n.trees = (1:30)*50, 
+gbmGrid <-  expand.grid(interaction.depth = c(1, 5, 9),
+                        n.trees = (1:30)*50,
                         shrinkage = 0.1,
                         n.minobsinnode = 20)
 
 nrow(gbmGrid)
 set.seed(100)
-gbmFit2 <- train(default.payment.next.month ~ ., data = train_tmp, 
-                 method = "gbm", 
+gbmFit2 <- train(default.payment.next.month ~ ., data = train_tmp,
+                 method = "gbm",
                  trControl = fitControl,
                  ## This last option is actually one
                  ## for gbm() that passes through
@@ -125,16 +206,16 @@ gbmFit2 <- train(default.payment.next.month ~ ., data = train_tmp,
                  tuneGrid = gbmGrid)
 gbmFit2
 
-# plot 
+# plot
 trellis.par.set(caretTheme())
-plot(gbmFit2) 
+plot(gbmFit2)
 plot(gbmFit2, metric = "Kappa")
 plot(gbmFit2,  plotType = "level",
      scales = list(x = list(rot = 90)))
 
 
-whichTwoPct <- tolerance(gbmFit2$results, metric = "ROC", 
-                         tol = 2, maximize = TRUE) 
+whichTwoPct <- tolerance(gbmFit2$results, metric = "ROC",
+                         tol = 2, maximize = TRUE)
 
 
 gbmFit2$resample
@@ -176,6 +257,7 @@ varImp(gbmFit2,numTrees = 100,interaction.depth=5,shrinkage=0.1,minobsinnode=20)
 gbmFit2$bestTune
 gbmFit2$modelInfo
 
+varImp(gbmFit)
 
 a=varImp(gbmFit1)
 
@@ -256,7 +338,7 @@ head(TrainData)
 
 trainTransformed
 
-preProcValues = preProcess(TrainData, method = c("center", "scale")) 
+preProcValues = preProcess(TrainData, method = c("center", "scale"))
 trainTransformed = predict(preProcValues, TrainData) # 訓練資料轉換
 testTransformed = predict(preProcValues, TestData) # 測試資料轉換
 
@@ -267,12 +349,12 @@ head(TrainData_N)
 
 
 formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
-glmFit <- train(default.payment.next.month  ~  LIMIT_BAL+SEX+EDUCATION+MARRIAGE+AGE+PAY_0+PAY_2+PAY_3+PAY_4+PAY_5+PAY_6+BILL_AMT1+BILL_AMT2+BILL_AMT3+BILL_AMT4+BILL_AMT5+BILL_AMT6+PAY_AMT1+PAY_AMT2+PAY_AMT3+PAY_AMT4+PAY_AMT5+PAY_AMT6+default.payment.next.month, data = training, 
-                method = "glm", 
+glmFit <- train(default.payment.next.month  ~  LIMIT_BAL+SEX+EDUCATION+MARRIAGE+AGE+PAY_0+PAY_2+PAY_3+PAY_4+PAY_5+PAY_6+BILL_AMT1+BILL_AMT2+BILL_AMT3+BILL_AMT4+BILL_AMT5+BILL_AMT6+PAY_AMT1+PAY_AMT2+PAY_AMT3+PAY_AMT4+PAY_AMT5+PAY_AMT6+default.payment.next.month, data = training,
+                method = "glm",
                 trControl = fitControl)
 
-glmFit2 <- train(formula, data = training, 
-                method = "glm", 
+glmFit2 <- train(formula, data = training,
+                method = "glm",
                 trControl = fitControl)
 
 
@@ -325,13 +407,13 @@ y_score = predict(glmFit, testing, type = "prob")[,2]
 
 xTab <- table(y_pred, y_ture)
 clss <- as.character(sort(unique(y_pred)))
-r <- matrix(NA, ncol = 7, nrow = 1, 
+r <- matrix(NA, ncol = 7, nrow = 1,
             dimnames = list(c(),c('Acc',
-                                  paste("P",clss[1],sep='_'), 
-                                  paste("R",clss[1],sep='_'), 
-                                  paste("F",clss[1],sep='_'), 
-                                  paste("P",clss[2],sep='_'), 
-                                  paste("R",clss[2],sep='_'), 
+                                  paste("P",clss[1],sep='_'),
+                                  paste("R",clss[1],sep='_'),
+                                  paste("F",clss[1],sep='_'),
+                                  paste("P",clss[2],sep='_'),
+                                  paste("R",clss[2],sep='_'),
                                   paste("F",clss[2],sep='_'))))
 r[1,1] <- sum(xTab[1,1],xTab[2,2])/sum(xTab) # Accuracy
 r[1,2] <- xTab[1,1]/sum(xTab[,1]) # Miss Precision
@@ -361,9 +443,53 @@ varImp(glmFit)
 
 importance(glmFit)
 
+subset(training[])
+
+library('rJava')
+library('extraTrees')
+set.seed(200)
+formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula=as.formula(formula)
+
+y = get('TargetColumn')
+x = setdiff(names(training), y)
+extFit <- train(x=training[x],
+                y=training[[y]],
+                method = "extraTrees",
+                trControl = fitControl)
+save(extFit, file = "./model/extFit.rda") # 儲存模型檔
+extFit
+
+training[x]
 
 
+set.seed(200)
+formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula=as.formula(formula)
+rfFit <- train(formula, data = training,
+               method = "rf",
+               trControl = fitControl)
+save(rfFit, file = "./model/rfFit.rda") # 儲存模型檔
+rfFit
+
+rf_train_pred = predict(rfFit, training)
+rf_train_prob = predict(rfFit, training, type = "prob")
+rf_train_report = report_metrics(rfFit$method,training$default.payment.next.month,rf_train_pred,rf_train_prob)
+rf_train_report
+
+rf_train_pred
+rf_train_prob
+rfFit$method
+
+length(rf_train_pred)
+length(training$default.payment.nrf.month)
 
 
-
-
+set.seed(200)
+formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula=as.formula(formula)
+gbmFit <- train(formula, data = training,
+                method = "gbm",
+                trControl = fitControl)
+save(gbmFit, file = "./model/gbmFit.rda") # 儲存模型檔
+gbmFit
