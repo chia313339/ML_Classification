@@ -87,6 +87,36 @@ TestData_dmy = predict(dummies, TestData) # 建立訓練資料的虛擬變量
 # dim(TrainData_dmy)
 # dim(TestData_dmy)
 head(TrainData_dmy[,1:5])
+
+# 建立多核運算環境
+cl<-makeCluster(3) #建議不要超過4，自行根據硬體設備設定
+registerDoParallel(cl)
+#stopCluster(cl) #不使用時可以用此語法關閉多核運行
+
+# 建立n個fold進行cross validation 以及模型的Control設定
+# 如果針對演算法要詳細設定，可以各別建立Control函數
+fitControl <- trainControl(## 3-fold CV
+  method = "cv",
+  number = 3 ) 
+
+# 訓練資料及測試資料去除識別欄位(順便備份)
+training = TrainData[-1]
+testing = TestData[-1]
+
+# 模型表現函數
+report_metrics = function(method,y_ture,y_pred,y_score){
+  ans = data.frame(Algorithm = method,
+                   ROC_AUC = AUC(y_pred, y_ture),
+                   Accuracy = Accuracy(y_pred, y_ture),
+                   Precision = Precision(y_ture, y_pred, positive = '1'),
+                   Recall = Recall(y_ture, y_pred, positive = '1'),
+                   F1_Score = F1_Score(y_ture, y_pred, positive  = '1')
+  )
+  return(ans)
+}
+
+
+
 ################################################################
 
 # 建立多核運算環境
@@ -149,17 +179,235 @@ glm_test_report
 
 ################################################################
 
+# ADAB模型訓練
+library(fastAdaboost)
+set.seed(200)
+formula = paste(get('TargetColumn')," ~ .")
+formula=as.formula(formula)
+adabFit <- train(formula, data = training, 
+                 method = "adaboost", 
+                 trControl = fitControl)
+save(adabFit, file = "./model/adabFit.rda") # 儲存模型檔
+adabFit
+
+
+# 訓練資料模型表現
+adab_train_pred = predict(adabFit, training)
+adab_train_prob = predict(adabFit, training, type = "prob")
+adab_train_report = report_metrics(adabFit$method,training$default.payment.next.month,adab_train_pred,adab_train_prob)
+adab_train_report
+
+# 模型重要變數
+adab_imp = varImp(adabFit, scale = TRUE)
+plot(adab_imp)
+
+# 測試資料模型表現
+adab_test_pred = predict(adabFit, testing)
+adab_test_prob = predict(adabFit, testing, type = "prob")
+adab_test_report = report_metrics(adabFit$method,testing$default.payment.next.month,adab_test_pred,adab_test_prob)
+adab_test_report
+
+
+TrainData_dmy = predict(dummies, TrainData) # 建立訓練資料的虛擬變量
+TestData_dmy = predict(dummies, TestData) # 建立訓練資料的虛擬變量
+
+formula = paste(get('TargetColumn')," ~ .")
+formula=as.formula(formula)
+xgbFit2 <- train(y=training$default.payment.next.month, x = TrainData_dmy, 
+                method = "xgbTree", 
+                trControl = fitControl)
+
+xgbFit2
+
+xgb_test2_pred = predict(xgbFit2, TestData_dmy)
+xgb_test2_prob = predict(xgbFit2, TestData_dmy, type = "prob")
+xgb_test2_report = report_metrics(xgbFit2$method,testing$default.payment.next.month,xgb_test2_pred,xgb_test2_prob)
+xgb_test2_report
+xgb_test_report
+
+table(xgb_test2_pred)
+
+xgb_train2_pred = predict(xgbFit2, training)
+xgb_train2_prob = predict(xgbFit2, training, type = "prob")
+xgb_train2_report = report_metrics(xgbFit2$method,training$default.payment.next.month,xgb_train2_pred,xgb_train2_prob)
+xgb_train2_report
+
+
+
+formula = paste(get('TargetColumn')," ~ .")
+formula=as.formula(formula)
+glmFit2 <- train(formula, data = training, 
+                 method = "glm", 
+                 family='binomial',
+                 trControl = fitControl)
+glmFit2
+
+# 測試資料模型表現
+glm_test2_pred = predict(glmFit2, testing)
+glm_test2_prob = predict(glmFit2, testing, type = "prob")
+glm_test2_report = report_metrics(glmFit2$method,testing[[TargetColumn]],glm_test2_pred,glm_test2_prob)
+glm_test2_report
+glm_test_report
+
+glmFit <- train(formula, data = training, 
+                method = "glm", 
+                trControl = fitControl)
+glmFit
+glm_test_pred = predict(glmFit, testing)
+glm_test_prob = predict(glmFit, testing, type = "prob")
+glm_test_report = report_metrics(glmFit$method,testing[[TargetColumn]],glm_test_pred,glm_test_prob)
+glm_test_report
+
+
+
+require(caret)
+require(devtools)
+library(lightgbm)
+
+model <-caretModel.LGBM()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+formula = paste(get('TargetColumn')," ~ .")
+formula=as.formula(formula)
+glmFit <- train(formula, data = training, 
+                method = "glm", 
+                trControl = fitControl)
+save(glmFit, file = "./model/glmFit.rda") # 儲存模型檔
+glmFit
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+imbal_train <- twoClassSim(10000, intercept = -20, linearVars = 20)
+imbal_test  <- twoClassSim(10000, intercept = -20, linearVars = 20)
+table(imbal_train$Class)
+
+
+# 原本樣本分佈
+table(TrainData[[TargetColumn]])
+
+# 若要使用請將down_train自行改為TrainData
+down_train <- downSample(x = TrainData[,-which(colnames(dataset)==TargetColumn)],
+                         y = TrainData[[TargetColumn]])
+names(down_train)[names(down_train)=="Class"]=get('TargetColumn')
+table(down_train[[TargetColumn]]) 
+
+# 若要使用請將up_train自行改為TrainData
+up_train <- upSample(x = TrainData[,-which(colnames(dataset)==TargetColumn)],
+                     y = TrainData[[TargetColumn]])  
+names(up_train)[names(up_train)=="Class"]=get('TargetColumn')
+table(up_train[[TargetColumn]]) 
+
+# 若要使用請將over_train自行改為TrainData
+formula = as.formula(paste(get('TargetColumn')," ~ ."))
+over_train <- ovun.sample(formula, data = TrainData, method = "over")$data
+table(over_train[[TargetColumn]]) 
+
+# 若要使用請將under_train自行改為TrainData
+formula = as.formula(paste(get('TargetColumn')," ~ ."))
+under_train <- ovun.sample(formula, data = TrainData, method = "under")$data
+table(under_train[[TargetColumn]]) 
+
+
+# 若要使用請將smote_train自行改為TrainData
+library(DMwR)
+formula = as.formula(paste(get('TargetColumn')," ~ ."))
+smote_train <- SMOTE(formula, data  = TrainData)                         
+table(smote_train[[TargetColumn]]) 
+
+# 若要使用請將smote_train自行改為TrainData
+library(ROSE)
+formula = as.formula(paste(get('TargetColumn')," ~ ."))
+rose_train <- ROSE(formula, data  = TrainData)$data                         
+table(rose_train[[TargetColumn]]) 
+
+
+
+
+unique(c('5','7','5','5','7'))
+length(unique(down_train$Unikey))
+
+
+
+
+library(DMwR)
+set.seed(9560)
+smote_train <- SMOTE(Class ~ ., data  = imbal_train)                         
+table(smote_train$Class) 
+
+
+
 dir.create(file.path(path, "model"), showWarnings = FALSE)
 
+data(mdrr)
+nzv <- nearZeroVar(mdrrDescr)
+filteredDescr <- mdrrDescr[, -nzv]
+dim(filteredDescr)
+names(mdrrDescr)[nzv]
 
 
-
-
-
-
-
-
-
+ltfrDesign <- matrix(0, nrow=6, ncol=6)
+ltfrDesign[,1] <- c(1, 1, 1, 1, 1, 1)
+ltfrDesign[,2] <- c(1, 1, 1, 0, 0, 0)
+ltfrDesign[,3] <- c(0, 0, 0, 1, 1, 1)
+ltfrDesign[,4] <- c(1, 0, 0, 1, 0, 0)
+ltfrDesign[,5] <- c(0, 1, 0, 0, 1, 0)
+ltfrDesign[,6] <- c(0, 0, 1, 0, 0, 1)
+ltfrDesign=as.data.frame(ltfrDesign)
+comboInfo <- findLinearCombos(ltfrDesign)
+names(ltfrDesign)[comboInfo$remove]
 
 library('caret')
 library('gbm')

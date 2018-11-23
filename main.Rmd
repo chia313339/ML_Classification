@@ -18,7 +18,7 @@ knitr::include_graphics('./sys/image2.jpeg')
 ```{r echo=FALSE, out.width='2%'}
 knitr::include_graphics('./sys/image1.jpeg')
 ```
-* 若跳出缺少套件的訊息，請自行安裝相關套件。
+* 每一台電腦的R版本不一樣，預設套件也不同，若跳出缺少套件的訊息，請自行安裝相關套件。
 * 建議將文件建立在R根目錄下開一個新資料夾當工作環境。
 * 以下以Kaggle中[Default of Credit Card Clients Dataset](https://www.kaggle.com/uciml/default-of-credit-card-clients-dataset/home)資料作為範例。
 
@@ -338,7 +338,8 @@ plot(cumulative_prob)
 
 ```{r message=FALSE, warning=FALSE}
 nzv = nearZeroVar(TrainData) # nzv為分佈差異大的欄位
-if(length(nzv)>0) TrainData = TrainData[, -nzv] # 若沒有則不處理
+if(length(nzv)>0) TrainData = TrainData[, -nzv] # 刪除欄位
+print(names(TrainData)[nzv]) # 若沒有要刪除的則沒東西
 ```
 
 #### 2. 轉為虛擬變量 dummy variables
@@ -368,6 +369,7 @@ head(TrainData_dmy[,1:5])
 ```{r message=FALSE, warning=FALSE,eval=FALSE}
 comboInfo = findLinearCombos(TrainData) # 找出線性相關欄位
 if(length(comboInfo$remove)>0) TrainData = TrainData[, -comboInfo$remove] # 排除相關性欄位
+print(names(TrainData)[comboInfo$remove]) # 若沒有要刪除的則沒東西
 ```
 
 #### 4. preProcess 函數
@@ -384,6 +386,83 @@ testTransformed = predict(preProcValues, TestData) # 測試資料轉換
 TrainData = data.frame(TrainData$Unikey,trainTransformed[-1])
 TestData = data.frame(TestData$Unikey,testTransformed[-1])
 ```
+
+#### <font color=CRIMSON> 5. 不平衡樣本處理 Subsampling </font>
+
+* 有些分類問題中，會遇到正樣本與負樣本不平衡的問題，類別的頻率差異會對模型穩定有極大的影響，如理賠詐欺案件數相當稀少不易建模(decision trees之類的演算法不受影響)。
+* 以下提出幾種真對不平衡樣本的處理方式，請使用者根據需求自行採用，若正負樣本比例沒有到極端不平衡，請省略此步驟。
+* 下面方法可以先跑跑看，理解各個方法的優再在決定採用哪一種方式，詳細可以參考[Sampling](https://en.wikipedia.org/wiki/Oversampling_and_undersampling_in_data_analysis)。
+
+```{r}
+# 原本應變數樣本分佈
+table(TrainData[[TargetColumn]])
+```
+
+##### 5.1 Downsampling
+
+```{r}
+# 若要使用請將down_train自行改為TrainData
+down_train <- downSample(x = TrainData[,-which(colnames(TrainData)==TargetColumn)],
+                         y = TrainData[[TargetColumn]])
+names(down_train)[names(down_train)=="Class"]=get('TargetColumn')
+table(down_train[[TargetColumn]]) 
+```
+
+##### 5.2 Upsampling
+
+```{r}
+# 若要使用請將up_train自行改為TrainData
+up_train <- upSample(x = TrainData[,-which(colnames(TrainData)==TargetColumn)],
+                     y = TrainData[[TargetColumn]])  
+names(up_train)[names(up_train)=="Class"]=get('TargetColumn')
+table(up_train[[TargetColumn]]) 
+```
+
+##### 5.3 Undersampling
+
+```{r}
+# 若要使用請將under_train自行改為TrainData
+library(ROSE)
+formula = as.formula(paste(get('TargetColumn')," ~ ."))
+under_train <- ovun.sample(formula, data = TrainData, method = "under")$data
+table(under_train[[TargetColumn]]) 
+```
+
+##### 5.4 Oversampling
+
+```{r}
+# 若要使用請將over_train自行改為TrainData
+library(ROSE)
+formula = as.formula(paste(get('TargetColumn')," ~ ."))
+over_train <- ovun.sample(formula, data = TrainData, method = "over")$data
+table(over_train[[TargetColumn]]) 
+```
+
+
+##### 5.5 SMOTE
+
+* 詳細可以參考[SMOTE](https://www.rdocumentation.org/packages/DMwR/versions/0.4.1/topics/SMOTE)。
+
+```{r}
+# 若要使用請將smote_train自行改為TrainData
+library(DMwR)
+formula = as.formula(paste(get('TargetColumn')," ~ ."))
+smote_train <- SMOTE(formula, data  = TrainData)                         
+table(smote_train[[TargetColumn]]) 
+```
+
+##### 5.6 ROSE
+
+* 詳細可以參考[ROSE](https://www.rdocumentation.org/packages/ROSE/versions/0.0-3/topics/ROSE)。
+
+```{r}
+# 若要使用請將rose_train自行改為TrainData
+library(ROSE)
+formula = as.formula(paste(get('TargetColumn')," ~ ."))
+rose_train <- ROSE(formula, data  = TrainData)$data                         
+table(rose_train[[TargetColumn]]) 
+```
+
 
 ## 相關參數設定
 
@@ -408,7 +487,7 @@ fitControl <- trainControl(## 3-fold CV
                            method = "cv",
                            number = 3 ) 
 
-# 訓練資料及測試資料去除識別欄位訓練(備份用意)
+# 訓練資料及測試資料去除識別欄位(順便備份)
 training = TrainData[-1]
 testing = TestData[-1]
 
@@ -432,7 +511,7 @@ report_metrics = function(method,y_ture,y_pred,y_score){
 ```{r message=FALSE, warning=FALSE}
 # GLM模型訓練
 set.seed(200)
-formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula = paste(get('TargetColumn')," ~ .")
 formula=as.formula(formula)
 glmFit <- train(formula, data = training, 
                  method = "glm", 
@@ -450,13 +529,13 @@ glm_train_report
 ```
 
 ```{r message=FALSE, warning=FALSE}
-# 模型重要變數
+# 模型重要變數
 glm_imp = varImp(glmFit, scale = TRUE)
 plot(glm_imp)
 ```
 
 ```{r message=FALSE, warning=FALSE}
-# 訓練資料模型表現
+# 測試資料模型表現
 glm_test_pred = predict(glmFit, testing)
 glm_test_prob = predict(glmFit, testing, type = "prob")
 glm_test_report = report_metrics(glmFit$method,testing[[TargetColumn]],glm_test_pred,glm_test_prob)
@@ -472,7 +551,7 @@ glm_test_report
 library('rpart')
 # CART模型訓練
 set.seed(200)
-formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula = paste(get('TargetColumn')," ~ .")
 formula=as.formula(formula)
 cartFit <- train(formula, data = training, 
                  method = "rpart", 
@@ -490,13 +569,13 @@ cart_train_report
 ```
 
 ```{r message=FALSE, warning=FALSE}
-# 模型重要變數
+# 模型重要變數
 cart_imp = varImp(cartFit, scale = TRUE)
 plot(cart_imp)
 ```
 
 ```{r message=FALSE, warning=FALSE}
-# 訓練資料模型表現
+# 測試資料模型表現
 cart_test_pred = predict(cartFit, testing)
 cart_test_prob = predict(cartFit, testing, type = "prob")
 cart_test_report = report_metrics(cartFit$method,testing[[TargetColumn]],cart_test_pred,cart_test_prob)
@@ -511,8 +590,7 @@ cart_test_report
 ```{r message=FALSE, warning=FALSE}
 # RF模型訓練
 set.seed(200)
-library('randomForest')
-formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula = paste(get('TargetColumn')," ~ .")
 formula=as.formula(formula)
 rfFit <- train(formula, data = training, 
                  method = "rf", 
@@ -530,13 +608,13 @@ rf_train_report
 ```
 
 ```{r message=FALSE, warning=FALSE}
-# 模型重要變數
+# 模型重要變數
 rf_imp = varImp(rfFit, scale = TRUE)
 plot(rf_imp)
 ```
 
 ```{r message=FALSE, warning=FALSE}
-# 訓練資料模型表現
+# 測試資料模型表現
 rf_test_pred = predict(rfFit, testing)
 rf_test_prob = predict(rfFit, testing, type = "prob")
 rf_test_report = report_metrics(rfFit$method,testing[[TargetColumn]],rf_test_pred,rf_test_prob)
@@ -552,7 +630,7 @@ rf_test_report
 # gbm模型訓練
 set.seed(200)
 library('gbm')
-formula = paste(get('TargetColumn')," ~ ",paste(names(training), collapse= "+"))
+formula = paste(get('TargetColumn')," ~ .")
 formula=as.formula(formula)
 gbmFit <- train(formula, data = training, 
                  method = "gbm", 
@@ -570,18 +648,116 @@ gbm_train_report
 ```
 
 ```{r message=FALSE, warning=FALSE}
-# 模型重要變數
+# 模型重要變數
 gbm_imp = varImp(gbmFit, scale = TRUE)
 plot(gbm_imp)
 ```
 
 ```{r message=FALSE, warning=FALSE}
-# 訓練資料模型表現
+# 測試資料模型表現
 gbm_test_pred = predict(gbmFit, testing)
 gbm_test_prob = predict(gbmFit, testing, type = "prob")
 gbm_test_report = report_metrics(gbmFit$method,testing$default.payment.next.month,gbm_test_pred,gbm_test_prob)
 gbm_test_report
 ```
+
+## 5. eXtreme Gradient Boosting
+
+* XGBoost模型，詳細請參考[xgb](https://www.rdocumentation.org/packages/xgboost/versions/0.4-4/topics/xgboost)。
+
+```{r message=FALSE, warning=FALSE}
+# XGB模型訓練
+set.seed(200)
+library('xgboost')
+formula = paste(get('TargetColumn')," ~ .")
+formula=as.formula(formula)
+xgbFit <- train(formula, data = training, 
+                 method = "xgbTree", 
+                 trControl = fitControl)
+save(xgbFit, file = "./model/xgbFit.rda") # 儲存模型檔
+xgbFit
+```
+
+```{r message=FALSE, warning=FALSE}
+# 訓練資料模型表現
+xgb_train_pred = predict(xgbFit, training)
+xgb_train_prob = predict(xgbFit, training, type = "prob")
+xgb_train_report = report_metrics(xgbFit$method,training$default.payment.next.month,xgb_train_pred,xgb_train_prob)
+xgb_train_report
+```
+
+```{r message=FALSE, warning=FALSE}
+# 模型重要變數
+xgb_imp = varImp(xgbFit, scale = TRUE)
+plot(xgb_imp)
+```
+
+```{r message=FALSE, warning=FALSE}
+# 測試資料模型表現
+xgb_test_pred = predict(xgbFit, testing)
+xgb_test_prob = predict(xgbFit, testing, type = "prob")
+xgb_test_report = report_metrics(xgbFit$method,testing$default.payment.next.month,xgb_test_pred,xgb_test_prob)
+xgb_test_report
+```
+
+## 6. Adaptive Boosting
+
+* adaboost模型，詳細請參考[adaboost](https://www.rdocumentation.org/packages/JOUSBoost/versions/2.1.0/topics/adaboost)。
+
+```{r message=FALSE, warning=FALSE}
+# ADAB模型訓練
+library('fastAdaboost')
+set.seed(200)
+formula = paste(get('TargetColumn')," ~ .")
+formula=as.formula(formula)
+adabFit <- train(formula, data = training, 
+                 method = "adaboost", 
+                 trControl = fitControl)
+save(adabFit, file = "./model/adabFit.rda") # 儲存模型檔
+adabFit
+```
+
+```{r message=FALSE, warning=FALSE}
+# 訓練資料模型表現
+adab_train_pred = predict(adabFit, training)
+adab_train_prob = predict(adabFit, training, type = "prob")
+adab_train_report = report_metrics(adabFit$method,training$default.payment.next.month,adab_train_pred,adab_train_prob)
+adab_train_report
+```
+
+```{r message=FALSE, warning=FALSE}
+# 模型重要變數
+adab_imp = varImp(adabFit, scale = TRUE)
+plot(adab_imp)
+```
+
+```{r message=FALSE, warning=FALSE}
+# 測試資料模型表現
+adab_test_pred = predict(adabFit, testing)
+adab_test_prob = predict(adabFit, testing, type = "prob")
+adab_test_report = report_metrics(adabFit$method,testing$default.payment.next.month,adab_test_pred,adab_test_prob)
+adab_test_report
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
